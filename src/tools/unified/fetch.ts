@@ -10,6 +10,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { Tool } from '../../types/index.js';
+import { resolveHanzoToken, resolveHanzoApiBase } from '../hanzo-auth.js';
 
 const execAsync = promisify(exec);
 
@@ -64,11 +65,13 @@ function paymentHeader(payment: any): Record<string, string> {
 
 export const fetchTool: Tool = {
   name: 'fetch',
-  description: 'Network operations: request, fetch, head, download, open, search, crawl',
+  description: 'Network, live web search, markdown web reader & multimodal vision: get, request, fetch, head, download, open, search, read, crawl, vision',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['request', 'fetch', 'head', 'download', 'open', 'search', 'crawl'], description: 'Network action' },
+      action: { type: 'string', enum: ['get', 'request', 'fetch', 'head', 'download', 'open', 'search', 'read', 'crawl', 'vision'], description: 'Network action' },
+      image: { type: 'string', description: 'Image file path or URL (action=vision)' },
+      prompt: { type: 'string', description: 'Vision prompt (action=vision)' },
       url: { type: 'string', description: 'URL' },
       method: { type: 'string', description: 'HTTP method', default: 'GET' },
       headers: { type: 'object', description: 'HTTP headers' },
@@ -85,6 +88,7 @@ export const fetchTool: Tool = {
   handler: async (args) => {
     try {
       switch (args.action) {
+        case 'get':
         case 'request': {
           const opts: RequestInit = {
             method: args.method || 'GET',
@@ -187,9 +191,8 @@ export const fetchTool: Tool = {
            * and base URL come from the same env the tracker tool reads, so the
            * MCP has ONE way to reach cloud rather than a second one here.
            */
-          const base = process.env.API_URL || 'https://api.hanzo.ai';
-          const key =
-            process.env.HANZO_API_KEY || process.env.API_KEY || process.env.API_TOKEN || process.env.HANZO_TOKEN || '';
+          const base = resolveHanzoApiBase();
+          const key = resolveHanzoToken();
           // Refuse LOUDLY without a credential. Returning an empty result list
           // here would reproduce the exact defect this replaced: the caller
           // cannot distinguish "the web has nothing" from "we never asked".
@@ -238,6 +241,57 @@ export const fetchTool: Tool = {
             },
             'search',
           );
+        }
+
+        case 'read': {
+          if (!args.url) return fail('INVALID_PARAMS', 'url required');
+          const base = resolveHanzoApiBase();
+          const key = resolveHanzoToken();
+          if (!key) return fail('NO_CREDENTIAL', 'HANZO_API_KEY required for markdown web read (/v1/crawl)');
+          const resp = await fetch(`${base}/v1/crawl`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+            body: JSON.stringify({ url: args.url }),
+            signal: AbortSignal.timeout(args.timeout || 30000),
+          });
+          const txt = await resp.text();
+          if (!resp.ok) return fail('UPSTREAM', `${resp.status}: ${txt.slice(0, 200)}`);
+          return envelope(txt ? JSON.parse(txt) : { url: args.url }, 'read');
+        }
+
+        case 'vision': {
+          const img = args.image || args.image_url || args.url;
+          if (!img) return fail('INVALID_PARAMS', 'image or url required');
+          const base = resolveHanzoApiBase();
+          const key = resolveHanzoToken();
+          if (!key) return fail('NO_CREDENTIAL', 'HANZO_API_KEY required for vision');
+          let imageUrl = String(img);
+          if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://') && !imageUrl.startsWith('data:')) {
+            const bytes = await fs.readFile(imageUrl);
+            const ext = path.extname(imageUrl).toLowerCase().replace('.', '') || 'png';
+            const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+            imageUrl = `data:${mime};base64,${bytes.toString('base64')}`;
+          }
+          const resp = await fetch(`${base}/v1/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+            body: JSON.stringify({
+              model: args.model || 'zen6',
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: args.prompt || args.query || 'Describe this image in detail.' },
+                    { type: 'image_url', image_url: { url: imageUrl } },
+                  ],
+                },
+              ],
+            }),
+          });
+          const txt = await resp.text();
+          if (!resp.ok) return fail('UPSTREAM', `${resp.status}: ${txt.slice(0, 200)}`);
+          const parsed = JSON.parse(txt);
+          return envelope({ content: parsed?.choices?.[0]?.message?.content ?? null, model: parsed?.model }, 'vision');
         }
 
         case 'crawl': {

@@ -9,7 +9,14 @@ import { Tool } from '../types/index.js';
 import { registerTool, getAllRegisteredTools } from './tool-registry.js';
 
 // HIP-0300 unified tools
-import { allUnifiedTools, coreTools as unifiedCoreTools, optionalTools } from './unified/index.js';
+import {
+  allUnifiedTools,
+  CANONICAL_TOOL_NAMES,
+  coreTools as unifiedCoreTools,
+  legacyAliasTools,
+  legacyToolAliasMap,
+  optionalTools,
+} from './unified/index.js';
 import { fsTool } from './unified/fs.js';
 import { execTool } from './unified/exec.js';
 import { codeTool } from './unified/code.js';
@@ -92,7 +99,22 @@ export const toolMap = new Map<string, Tool>(allTools.map(tool => [tool.name, to
 
 // Re-export unified tools
 export { fsTool, execTool, codeTool, fetchTool, workspaceTool, hanzoTool };
-export { allUnifiedTools, optionalTools } from './unified/index.js';
+export {
+  allUnifiedTools,
+  CANONICAL_TOOL_NAMES,
+  legacyAliasTools,
+  legacyToolAliasMap,
+  optionalTools,
+  computerTool,
+  computerTools,
+  codingTool,
+  codingTools,
+  researchTool,
+  researchTools,
+  skillsTool,
+  skillsTools,
+  trackerTool,
+} from './unified/index.js';
 
 // Re-export legacy tools (for backwards compat imports)
 export { fileTools } from './file-ops.js';
@@ -132,6 +154,8 @@ export { kaiActionTool, kaiActionTools } from './kai-action.js';
 export { llmTools, llmTool } from './llm.js';
 export { browserTools, browserTool, cdpTool } from './browser.js';
 export { packageTools, npxTool, uvxTool, jqTool } from './packages.js';
+export { vaultTools, vaultTool } from './vault.js';
+export { connectorsTools, connectorsTool, CONNECTORS, COMPATIBLE_16_APPS } from './connectors.js';
 export { refactorTools } from './refactor.js';
 export { memoryTools } from './memory.js';
 export { planTools } from './plan.js';

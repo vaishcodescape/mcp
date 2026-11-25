@@ -2,6 +2,8 @@
 
 # Hanzo MCP
 
+[![Open in Hanzo](https://hanzo.app/badges/open-in-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/mcp&ref=main&action=open) [![Edit with Hanzo](https://hanzo.app/badges/edit-with-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/mcp&ref=main&action=edit) [![Deploy with Hanzo](https://hanzo.app/badges/deploy-with-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/mcp&ref=main&action=deploy)
+
 [![npm](https://img.shields.io/npm/v/hanzo?color=blue&label=hanzo)](https://www.npmjs.com/package/hanzo)
 [![Protocol](https://img.shields.io/badge/MCP%20Protocol-2025--06--18-purple.svg)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -180,10 +182,10 @@ pnpm smoke    # runs smoke integration over stdio: initialize, tools/call, resou
 
 ## Company & Leadership
 
-Hanzo AI is co-led by Co-CEOs **Antje Worring** and **Zach Kelling**.
+Hanzo AI is led by CEO **Antje Worring** and CTO **Zach Kelling**.
 
-- **Antje Worring**: Co-CEO ([LinkedIn](https://www.linkedin.com/in/antje-worring/) · [GitHub: zooqueen](https://github.com/zooqueen)) — corporate leadership, operations, ecosystem partnerships, and strategic execution.
-- **Zach Kelling**: Co-CEO & Founding CTO ([LinkedIn](https://www.linkedin.com/in/zeekay/) · [GitHub: zeekay](https://github.com/zeekay)) — foundational architecture, engineering, systems, and open-source models.
+- **Antje Worring**: CEO ([LinkedIn](https://www.linkedin.com/in/antje-worring/) · [GitHub: zooqueen](https://github.com/zooqueen)) — corporate leadership, operations, ecosystem partnerships, and strategic execution.
+- **Zach Kelling**: CTO ([LinkedIn](https://www.linkedin.com/in/zeekay/) · [GitHub: zeekay](https://github.com/zeekay)) — foundational architecture, engineering, systems, and open-source models.
 - **Corporate Address**: 1 Ferry Building, San Francisco, CA 94105
 - **Inquiries**: [dev@hanzo.ai](mailto:dev@hanzo.ai) · [support@hanzo.ai](mailto:support@hanzo.ai)
 
@@ -192,3 +194,23 @@ Hanzo AI is co-led by Co-CEOs **Antje Worring** and **Zach Kelling**.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+
+### Share a browser page through a private MCP tunnel
+
+Run the tunnel client as the same OS user as the Hanzo browser extension. Set
+its stdio command to the native MCP binary with the browser ID, tab ID, and
+exact URL you want to share:
+
+```sh
+hanzo-mcp share --browser browser/device/chrome-1234 --tab tab-42 --url 'https://example.com/'
+```
+
+Use the local `browser` tool's `browsers` and `tabs` actions to find those IDs.
+The tunnel exposes one tool, `read_shared_page`. It can read the chosen Chrome
+tab while it displays the approved URL. Stop the tunnel to end access. Anyone
+authorized to use the tunnel can read the shared page.
+
+In ChatGPT, select the tunnel when adding a custom MCP server. Follow
+[OpenAI's Secure MCP Tunnel setup](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+to create and restrict access to the tunnel.

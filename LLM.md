@@ -9,11 +9,32 @@ Guidance for AI agents working in this repo.
 - **Corporate Address**: `1 Ferry Building, San Francisco, CA 94105` (NEVER use `1828 Golden Gate`).
 
 ## What this is
-The canonical Model Context Protocol server for the Hanzo AI Cloud. Collapses a
-260+ tool catalog into **13 HIP-0300 action-routed tools** (`fs`, `exec`, `code`,
-`git`, `fetch`, `workspace`, `ui` + optional `think`, `memory`, `hanzo`, `plan`,
-`tasks`, `mode`) over MCP stdio / streamable-http. TypeScript today; Rust runtime
-for latency-sensitive ops; Go runtime under `hanzoai/cloud` (HIP-0106 in flight).
+The canonical Model Context Protocol server for the Hanzo AI Cloud. Enforces the
+finalized **19-tool canonical HIP-0300 surface** ("one and one way to do everything")
+with 1-to-1 `tools/list` equivalence across Rust (`hanzo-mcp`), TypeScript
+(`@hanzo/mcp`), and Python (`hanzo-mcp`):
+
+1. `fs` — Local filesystem & native `tgrep` trigram search (`read`, `write`, `edit`, `apply_patch`, `patch`, `list`, `tree`, `search_text`, `stat`, `mkdir`, `rm`, `mv`, `cp`)
+2. `exec` — Process execution, classified shell policy, background jobs & package runners (`exec`, `ps`, `logs`, `kill`, `wait`, `npx`, `uvx`)
+3. `code` — AST symbols, LSP, refactoring, JSON queries & Cloud RAG (`symbols`, `outline`, `definition`, `references`, `diagnostics`, `rename`, `refactor`, `lsp`, `jq`, `search`, `context`, `ask`, `index`)
+4. `git` — Git operations (`status`, `diff`, `log`, `commit`, `branch`, `checkout`, `blame`, `stash`, `worktree`)
+5. `fetch` — HTTP requests, live web search, web reader & multimodal vision (`get`, `request`, `search`, `read`, `vision`)
+6. `workspace` — Project discovery, roots, config, mode & host system info (`detect`, `projects`, `config`, `system`, `mode`, `version`)
+7. `browser` — Web browser & CDP automation over ZAP (`navigate`, `snapshot`, `click`, `type`, `screenshot`, `evaluate`, `cdp`)
+8. `computer` — Native OS desktop GUI control & GIMP image scripting (`screenshot`, `click`, `move`, `type`, `key`, `window`, `gimp`)
+9. `ui` — `@hanzo/ui` & `@hanzo/gui` component registry (`search`, `get`, `blocks`, `install`, `tokens`)
+10. `kai` — Unified Kai decision model & verified action engine (`decide`, `choice`, `score`, `noul`, `run`, `plan`, `list`, `triggers`, `compact`, `tool_select`, `next_action`, `command_guard`, `injection_screen`, `extract`, `log_triage`, `recover`, `agent_step`)
+11. `think` — Structured reasoning, multi-voice consensus, LLM & sub-agent delegation (`think`, `critic`, `consensus`, `llm`, `query`, `models`, `limits`, `feedback`, `agent`)
+12. `plan` — Execution plan creation & step tracking (`create`, `update`, `get`, `list`, `complete`)
+13. `memory` — Persistent memory & recall (`store`, `recall`, `search`, `list`, `delete`)
+14. `tasks` — Local private session todo list (`~/.hanzo/todos.json`: `list`, `add`, `update`, `complete`, `clear`)
+15. `tracker` — Hanzo Cloud `/v1/tracker` boards & work items (`boards`, `issues`, `create`, `update`)
+16. `coding` — Hanzo Cloud `/v1/agent/coding` autonomous runs (`start`, `progress`, `changes`, `artifacts`, `tree`, `blob`, `steer`, `pull`, `merge`, `extend`, `stop`)
+17. `research` — Hanzo Science & Research `/v1/research` + `/v1/ask` (`studies`, `runs`, `start`, `status`, `ledger`, `artifacts`, `search`)
+18. `skills` — Hanzo Skills catalog (`https://hanzoskills.com/search.json` + `/skills/<slug>/SKILL.md` + `/v1/tool/skills` -> `~/.agents/skills/<slug>/SKILL.md`: `search`, `detect`, `get`, `install`, `list`)
+19. `hanzo` — Unified Hanzo Cloud platform router (`auth`, `iam`, `kms`/`vault`, `connectors`, `describe`, + all 122 generated `catalog.json` fleet services)
+
+Legacy fragmented names (`kai_decide`, `kai_choice`, `kai_score`, `kai_noul`, `kai_compact`, `kai_tool_select`, `tracker_boards`, `tracker_issues`, `tracker_create`, `tracker_update`, `code_search`, `web_search`, `vault`, `connectors`, `llm`, `npx`, `uvx`, `jq`, `cdp`, `gimp`, `lsp`, `refactor`, `config`, `system`, `mode`, `agent`, etc.) remain callable via silent `tools/call` aliases for backward compatibility while never polluting `tools/list`.
 
 The `ai` subsystem in `src/tools/catalog.json` and `rust/catalog.json` includes `aiFrameGenerate` (`POST /v1/frame/generations`) and `aiFrameEdit` (`POST /v1/frame/edits`) for Hyperframe graphic composites (strictly text-free diffusion backgrounds via `iro`, `qwen-image`, `qwen-image-edit`, `z-image-turbo`, `flux-3` + composable `@hanzo/font` `Zen` and `Zen Mono` typography/terminal/card/HTML layers).
 
@@ -447,6 +468,17 @@ catalog. Two things that list had were worse than stale — it named `paas` and
 the four mapped a caller off the surface the fleet serves. `resolve_service`
 normalises spelling and renames nothing; one thing has one name.
 
+## Calls to the cloud are tried again, and heavy tools are optional peers
+
+`src/tools/retry.ts` is the one retrying fetch for the cloud door (`cloud.ts`): a 429 waits the
+`Retry-After` (seconds or an HTTP date, at most a minute) or backs off with jitter; a 500, 502, 503, 504, a
+timeout, a reset or a refused connection is tried again; four tries; any other answer is the answer. A
+failure is tried again only for a read (`get_*`) or a write that carries a `requestId` (the cloud answers
+it once); `post_agent_coding` is given one per call, the same on every try. `@lancedb/lancedb`,
+`@xenova/transformers` and `jsautogui` are optional peers, never installed with the package and loaded on
+first use; the tool that needs one answers with the install command. An empty-cache `npx -y` start
+answered `initialize` in 52.7s with them as optional dependencies (241 packages) and 8.5s without (101).
+
 ## `browser` and `cdp` — the user's browser over ZAP
 
 The browser is reached the way Python `hanzo-mcp` reaches it: through this
@@ -625,10 +657,22 @@ Verify a release with `npm view @hanzo/mcp version`, never with a green run.
 - Voice: "Hanzo — the Open AI Cloud." Modern, crisp, developer-first. Hanzo AI is Techstars '17.
 
 ## Cross-Runtime Parity (TypeScript, Rust, Python)
-- HIP-0300 tools + cloud tools (`code_search`, `code_context`, `code_ask`, `code_index`, `web_search`, `web_read`, `research`, `vision`) maintain 1-to-1 parity.
-- Tracker work-item tools (`tracker_boards`, `tracker_issues`, `tracker_create`, `tracker_update`) are implemented and verified across TypeScript, Rust (`rust/src/tools/tracker_tool.rs`), and Python (`pkg/hanzo-tools-todo/hanzo_tools/todo/tracker_tool.py`).
+- All three runtimes (`@hanzo/mcp` v2.4.25, Rust `hanzo-mcp` v1.1.38, and Python `hanzo-mcp`) advertise the exact same **19 canonical HIP-0300 tools** in `tools/list`:
+  `fs`, `exec`, `code`, `git`, `fetch`, `workspace`, `browser`, `computer`, `ui`, `kai`, `think`, `plan`, `memory`, `tasks`, `tracker`, `coding`, `research`, `skills`, `hanzo`.
+- Unified auth across Rust (`rust/src/hanzo_api.rs`), TypeScript (`src/tools/hanzo-auth.ts`), and Python (`hanzo_mcp/tools/canonical.py`):
+  `HANZO_API_KEY` -> `HANZO_USER_KEY` -> `API_KEY` / `HANZO_TOKEN` -> active CLI login (`hanzo auth token`, never `/usr/bin/hanzo`), respecting `HANZO_API_BASE` / `HANZO_API_URL` / `HANZO_CLOUD_API` (default `https://api.hanzo.ai`), `HANZO_ORG` (`X-Org-Id`), and `LOCAL_KAI_URL`.
 - Binaries:
-  - TypeScript: `@hanzo/mcp` (`dist/cli.js`, `hanzo-mcp-ts`)
-  - Rust: `hanzo-mcp` v1.1.24 (`~/.cargo/bin/hanzo-mcp`, `~/.local/bin/hanzo-mcp-rs`)
-  - Python: `hanzo-mcp` v0.15.16 (`~/.local/bin/hanzo-mcp` via `uv tool`)
+  - Rust (primary native binary): `hanzo-mcp` v1.1.38 (`~/.local/bin/hanzo-mcp`, `~/.local/bin/mcp -> hanzo-mcp`)
+  - TypeScript: `@hanzo/mcp` v2.4.25 (`dist/cli.js`)
+  - Python: `hanzo-mcp` (`python-sdk/pkg/hanzo-mcp` — delegates `serve` to native Rust `hanzo-mcp` unless `HANZO_MCP_PURE_PYTHON=1`, and provides all 19 canonical tools in pure-Python mode)
 
+
+## fs apply_patch: base_hash is optional (2026-11-16, hanzo-inc/cloud#758)
+- Rust `fs` (`rust/src/tools/fs_tool.rs`, crate 1.1.x): `apply_patch` takes `uri`, `old_text`
+  (must match exactly once), `new_text`; `base_hash` is optional and still refuses a stale edit
+  when sent. Requiring a read first made models loop (refused call, read, retry) and burned
+  hundreds of thousands of cached tokens per edit. The schema now says which fields are required.
+- TS `src/tools/unified/fs.ts` (@hanzo/mcp 2.4.23) matches: base_hash optional, the same schema
+  words, and an apply_patch sent a `*** Begin Patch` text in `input` is told to use action `patch`.
+  Test: `test/tools/unified/fs.test.ts`. python-sdk `hanzo_tools.fs.FsTool` follows in hanzoai/python-sdk.
+- The Rust fix first ships in hanzo-mcp 1.1.37 (tag `rust-v1.1.37`); 1.1.36 predates it.

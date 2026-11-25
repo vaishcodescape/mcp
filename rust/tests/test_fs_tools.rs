@@ -52,6 +52,37 @@ async fn apply_patch_needs_the_current_hash_and_a_unique_match() {
     assert_eq!(std::fs::read_to_string(&f).unwrap(), "A beta beta\n");
 }
 
+/// hanzo-inc/cloud#758: one call edits a file. A model that sends uri, old_text and
+/// new_text without a prior read is not refused into a read-then-retry loop; the
+/// unique match is the guard, and a base_hash, when sent, is still checked.
+#[tokio::test]
+async fn apply_patch_edits_in_one_call_without_a_prior_read() {
+    let d = TempDir::new().unwrap();
+    let f = at(&d, "c.txt");
+    std::fs::write(&f, "one\ntwo\nthree\n").unwrap();
+
+    let ok = fs(json!({"action": "apply_patch", "uri": f, "old_text": "two", "new_text": "2"})).await;
+    assert_eq!(ok["ok"], true, "{ok}");
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "one\n2\nthree\n");
+    assert!(ok["data"]["previous_hash"].as_str().unwrap().starts_with("sha256:"));
+
+    // Without a hash, an ambiguous or absent match is still refused, and nothing changes.
+    std::fs::write(&f, "x x\n").unwrap();
+    let twice = fs(json!({"action": "apply_patch", "uri": f, "old_text": "x", "new_text": "y"})).await;
+    assert_eq!(twice["error"]["code"], "INVALID_PARAMS");
+    let none = fs(json!({"action": "apply_patch", "uri": f, "old_text": "z", "new_text": "y"})).await;
+    assert_eq!(none["error"]["code"], "NOT_FOUND");
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "x x\n");
+}
+
+/// The schema tells the model what apply_patch takes, so it does not guess.
+#[tokio::test]
+async fn the_schema_says_what_apply_patch_takes() {
+    let schema = serde_json::to_string(&hanzo_mcp::tools::FsToolDefinition::new()).unwrap();
+    assert!(schema.contains("apply_patch: uri, old_text (must match exactly once), new_text"), "{schema}");
+    assert!(schema.contains("base_hash") && schema.contains("optional"), "{schema}");
+}
+
 #[tokio::test]
 async fn list_walks_to_depth_filters_and_pages() {
     let d = TempDir::new().unwrap();
@@ -92,12 +123,80 @@ async fn patch_applies_the_rust_grammar() {
     let d = TempDir::new().unwrap();
     std::fs::write(d.path().join("u.txt"), "keep\nold\n").unwrap();
     std::fs::write(d.path().join("gone.txt"), "x").unwrap();
-    std::env::set_current_dir(d.path()).unwrap();
-    let p = fs(json!({"action": "patch", "input": "*** Begin Patch\n*** Add File: new.txt\n+hello\n*** Update File: u.txt\n@@\n keep\n-old\n+new\n*** Delete File: gone.txt\n*** End Patch"})).await;
+    // Absolute paths: a test that changed the process's cwd would break every patch beside it.
+    let (new, u, gone) = (at(&d, "new.txt"), at(&d, "u.txt"), at(&d, "gone.txt"));
+    let input = format!("*** Begin Patch\n*** Add File: {new}\n+hello\n*** Update File: {u}\n@@\n keep\n-old\n+new\n*** Delete File: {gone}\n*** End Patch");
+    let p = fs(json!({"action": "patch", "input": input})).await;
     assert_eq!(p["data"]["success"], true, "{p}");
     assert_eq!(std::fs::read_to_string(d.path().join("new.txt")).unwrap(), "hello\n");
     assert_eq!(std::fs::read_to_string(d.path().join("u.txt")).unwrap(), "keep\nnew\n");
     assert!(!d.path().join("gone.txt").exists());
+}
+
+/// A patch that updates `file` (an absolute path, so no test depends on the process's cwd).
+fn update(file: &str, hunks: &str) -> Value {
+    json!({"action": "patch", "input": format!("*** Begin Patch\n*** Update File: {file}\n{hunks}*** End Patch")})
+}
+
+#[tokio::test]
+async fn patch_with_an_unmatched_hunk_fails_and_writes_nothing() {
+    let d = TempDir::new().unwrap();
+    let f = at(&d, "u.txt");
+    std::fs::write(&f, "alpha\nbeta\ngamma\n").unwrap();
+    let p = fs(update(&f, "@@\n-alpha\n+ALPHA\n@@\n-does-not-exist\n+X\n")).await;
+    assert_eq!(p["data"]["success"], false, "{p}");
+    assert_eq!(p["data"]["results"][0]["success"], false, "{p}");
+    assert!(p["data"]["results"][0]["error"].as_str().unwrap().contains("Hunk 2"), "{p}");
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "alpha\nbeta\ngamma\n", "a half-applied patch reached the disk");
+}
+
+#[tokio::test]
+async fn patch_counts_the_hunks_it_applied() {
+    let d = TempDir::new().unwrap();
+    let f = at(&d, "u.txt");
+    std::fs::write(&f, "alpha\nbeta\ngamma\n").unwrap();
+    let p = fs(update(&f, "@@\n-alpha\n+ALPHA\n@@\n-gamma\n+GAMMA\n")).await;
+    assert_eq!(p["data"]["success"], true, "{p}");
+    assert_eq!(p["data"]["results"][0]["hunks_applied"], 2, "{p}");
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "ALPHA\nbeta\nGAMMA\n");
+}
+
+#[tokio::test]
+async fn patch_inserts_right_after_its_anchor_and_keeps_the_trailing_newline() {
+    let d = TempDir::new().unwrap();
+    let f = at(&d, "i.txt");
+    std::fs::write(&f, "fn a() {}\nfn b() {}\n").unwrap();
+    let p = fs(update(&f, "@@ fn a() {}\n+fn inserted() {}\n")).await;
+    assert_eq!(p["data"]["success"], true, "{p}");
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "fn a() {}\nfn inserted() {}\nfn b() {}\n");
+}
+
+#[tokio::test]
+async fn patch_insertion_without_its_anchor_fails_and_writes_nothing() {
+    let d = TempDir::new().unwrap();
+    let f = at(&d, "i.txt");
+    std::fs::write(&f, "fn a() {}\n").unwrap();
+    let p = fs(update(&f, "@@ fn missing() {}\n+fn inserted() {}\n")).await;
+    assert_eq!(p["data"]["results"][0]["success"], false, "{p}");
+    assert!(p["data"]["results"][0]["error"].as_str().unwrap().contains("anchor"), "{p}");
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "fn a() {}\n");
+}
+
+#[tokio::test]
+async fn a_failed_file_does_not_stop_the_next_one() {
+    let d = TempDir::new().unwrap();
+    let (bad, good) = (at(&d, "bad.txt"), at(&d, "good.txt"));
+    std::fs::write(&bad, "one\n").unwrap();
+    std::fs::write(&good, "two\n").unwrap();
+    let input = format!(
+        "*** Begin Patch\n*** Update File: {bad}\n@@\n-nope\n+x\n*** Update File: {good}\n@@\n-two\n+TWO\n*** End Patch"
+    );
+    let p = fs(json!({"action": "patch", "input": input})).await;
+    assert_eq!(p["data"]["success"], false, "{p}");
+    assert_eq!(p["data"]["results"][0]["success"], false, "{p}");
+    assert_eq!(p["data"]["results"][1]["success"], true, "{p}");
+    assert_eq!(std::fs::read_to_string(&bad).unwrap(), "one\n");
+    assert_eq!(std::fs::read_to_string(&good).unwrap(), "TWO\n");
 }
 
 #[tokio::test]
